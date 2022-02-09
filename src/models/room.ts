@@ -1564,36 +1564,42 @@ export class Room extends EventEmitter {
         EventTimeline.setEventMetadata(event, this.getLiveTimeline().getState(EventTimeline.FORWARDS), false);
 
         this.txnToEvent[txnId] = event;
+        let sendToMainTimeline = true;
         const thread = this.findThreadForEvent(event);
-        if (this.opts.pendingEventOrdering === PendingEventOrdering.Detached && !thread) {
-            if (this.pendingEventList.some((e) => e.status === EventStatus.NOT_SENT)) {
-                logger.warn("Setting event as NOT_SENT due to messages in the same state");
-                event.setStatus(EventStatus.NOT_SENT);
+        if (thread) {
+            thread.addEvent(event, false);
+            if (thread.id === event.parentEventId) {
+                sendToMainTimeline = true;
             }
-            this.pendingEventList.push(event);
-            this.savePendingEvents();
-            if (event.isRelation()) {
-                // For pending events, add them to the relations collection immediately.
-                // (The alternate case below already covers this as part of adding to
-                // the timeline set.)
-                this.aggregateNonLiveRelation(event);
-            }
+        }
 
-            if (event.isRedaction()) {
-                const redactId = event.event.redacts;
-                let redactedEvent = this.pendingEventList &&
-                    this.pendingEventList.find(e => e.getId() === redactId);
-                if (!redactedEvent) {
-                    redactedEvent = this.findEventById(redactId);
+        if (sendToMainTimeline) {
+            if (this.opts.pendingEventOrdering === PendingEventOrdering.Detached) {
+                if (this.pendingEventList.some((e) => e.status === EventStatus.NOT_SENT)) {
+                    logger.warn("Setting event as NOT_SENT due to messages in the same state");
+                    event.setStatus(EventStatus.NOT_SENT);
                 }
-                if (redactedEvent) {
-                    redactedEvent.markLocallyRedacted(event);
-                    this.emit("Room.redaction", event, this);
+                this.pendingEventList.push(event);
+                this.savePendingEvents();
+                if (event.isRelation()) {
+                    // For pending events, add them to the relations collection immediately.
+                    // (The alternate case below already covers this as part of adding to
+                    // the timeline set.)
+                    this.aggregateNonLiveRelation(event);
                 }
-            }
-        } else {
-            if (thread) {
-                thread.addEvent(event, false);
+
+                if (event.isRedaction()) {
+                    const redactId = event.event.redacts;
+                    let redactedEvent = this.pendingEventList &&
+                        this.pendingEventList.find(e => e.getId() === redactId);
+                    if (!redactedEvent) {
+                        redactedEvent = this.findEventById(redactId);
+                    }
+                    if (redactedEvent) {
+                        redactedEvent.markLocallyRedacted(event);
+                        this.emit("Room.redaction", event, this);
+                    }
+                }
             } else {
                 for (let i = 0; i < this.timelineSets.length; i++) {
                     const timelineSet = this.timelineSets[i];
